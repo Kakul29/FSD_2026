@@ -1,31 +1,23 @@
+// Load .env before any other module reads process.env (e.g. JWT_SECRET in auth middleware)
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
-import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import { connectDB } from './server/db';
-import apiRouter from './server/routes/api';
-
-dotenv.config();
+import { createApp } from './server/app';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
-  const app = express();
+  const app = createApp();
   const server = http.createServer(app);
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProduction = process.env.NODE_ENV === 'production';
 
-  app.use(cors());
-  app.use(express.json());
-
   // Connect Database (MongoDB or resilient memory store)
   await connectDB();
-
-  // Mount API Router
-  app.use('/api', apiRouter);
 
   // Development: Mount Vite dev server middleware
   if (!isProduction) {

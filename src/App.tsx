@@ -25,6 +25,7 @@ import { FavoritesModal } from './components/FavoritesModal';
 import { api, getStoredToken, clearStoredToken, getStoredRegion, setStoredRegion } from './services/api';
 import { IFormattedProduct, IUser, IHistoryItem } from './types';
 import { REGIONS, DEFAULT_REGION, getRegion } from '../shared/regions';
+import heroImage from './assets/images/hero_food_scanner_1792084041683.jpg';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<IUser | null>(null);
@@ -208,7 +209,7 @@ export default function App() {
         <section className="relative rounded-3xl bg-stone-900 text-stone-50 overflow-hidden shadow-xl border border-stone-800">
           <div className="absolute inset-0 z-0 opacity-40 mix-blend-overlay">
             <img
-              src="/src/assets/images/hero_food_scanner_1792084041683.jpg"
+              src={heroImage}
               alt="Wholesome food ingredients and packaged foods"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover"

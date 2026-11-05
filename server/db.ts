@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { ensureDemoUserInMongo } from './models/User';
 
 let isConnected = false;
 let connectionError: string | null = null;
@@ -21,6 +22,7 @@ export async function connectDB(): Promise<boolean> {
     });
     isConnected = true;
     connectionError = null;
+    await ensureDemoUserInMongo();
     console.log('[LabelLens DB] Successfully connected to MongoDB at', mongoUri.replace(/\/\/.*@/, '//***@'));
     return true;
   } catch (err: any) {

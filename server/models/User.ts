@@ -182,6 +182,31 @@ async function seedDemoUser() {
 }
 seedDemoUser();
 
+// Make the demo account available in MongoDB too, so the documented demo login works when deployed
+export async function ensureDemoUserInMongo() {
+  if (mongoose.connection.readyState !== 1) return;
+  const demo = inMemoryUsers.get('student@labellens.dev');
+  if (!demo) return;
+  try {
+    const exists = await MongooseUserModel.exists({ email: demo.email });
+    if (exists) return;
+    // Password is already hashed; insert directly so the pre-save hook does not hash it again
+    await MongooseUserModel.collection.insertOne({
+      email: demo.email,
+      password: demo.password,
+      name: demo.name,
+      profile: demo.profile,
+      history: demo.history,
+      favorites: demo.favorites,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    console.log('[LabelLens DB] Seeded demo user in MongoDB');
+  } catch (err: any) {
+    console.warn('[LabelLens DB] Could not seed demo user:', err.message);
+  }
+}
+
 export class UserRepository {
   static async findByEmail(email: string) {
     if (mongoose.connection.readyState === 1) {
