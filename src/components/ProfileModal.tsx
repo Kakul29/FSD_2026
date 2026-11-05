@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Shield, Plus, Check, Heart, Apple, Activity, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Shield, Plus, Check, Heart, Apple, Activity, AlertCircle, MapPin } from 'lucide-react';
 import { IUser, IUserProfile } from '../types';
-import { api } from '../services/api';
+import { api, getStoredRegion, setStoredRegion } from '../services/api';
+import { REGIONS, DEFAULT_REGION } from '../../shared/regions';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -22,13 +23,51 @@ const COMMON_ALLERGIES = [
   'sesame',
   'fish',
   'shellfish',
+  'mustard',
+  'celery',
+  'sulphites',
+  'lupin',
+  'corn',
 ];
 
-const DIETARY_PREFERENCES = [
-  { id: 'vegetarian', label: 'Vegetarian (No meat/fish)' },
-  { id: 'vegan', label: 'Vegan (Strict plant-based)' },
-  { id: 'jain', label: 'Jain (No root vegetables/onion/garlic)' },
-  { id: 'lactose-free', label: 'Lactose-Free' },
+const DIETARY_PREFERENCE_GROUPS = [
+  {
+    title: 'Lifestyle & Religious',
+    options: [
+      { id: 'vegetarian', label: 'Vegetarian (No meat/fish)' },
+      { id: 'eggetarian', label: 'Eggetarian (Vegetarian + eggs)' },
+      { id: 'vegan', label: 'Vegan (Strict plant-based)' },
+      { id: 'pescatarian', label: 'Pescatarian (Fish, no meat)' },
+      { id: 'jain', label: 'Jain (No root vegetables/onion/garlic)' },
+      { id: 'no_onion_garlic', label: 'Satvik (No onion & garlic)' },
+      { id: 'halal', label: 'Halal (No pork/alcohol/gelatin)' },
+      { id: 'kosher', label: 'Kosher (No pork/shellfish)' },
+    ],
+  },
+  {
+    title: 'Intolerances & Special Diets',
+    options: [
+      { id: 'lactose-free', label: 'Lactose-Free' },
+      { id: 'dairy_free', label: 'Dairy-Free' },
+      { id: 'gluten_free', label: 'Gluten-Free / Celiac' },
+      { id: 'keto', label: 'Keto / Low-Carb (<10g carbs)' },
+      { id: 'low_fodmap', label: 'Low-FODMAP (IBS-friendly)' },
+      { id: 'paleo', label: 'Paleo (No grains/legumes/dairy)' },
+    ],
+  },
+  {
+    title: 'Ingredients to Avoid',
+    options: [
+      { id: 'no_added_sugar', label: 'No Added Sugar' },
+      { id: 'no_artificial_sweeteners', label: 'No Artificial Sweeteners' },
+      { id: 'no_artificial_colours', label: 'No Artificial Colours' },
+      { id: 'no_msg', label: 'No MSG / Flavour Enhancers' },
+      { id: 'no_palm_oil', label: 'No Palm Oil' },
+      { id: 'no_preservatives', label: 'No Preservatives' },
+      { id: 'caffeine_free', label: 'Caffeine-Free' },
+      { id: 'alcohol_free', label: 'Alcohol-Free' },
+    ],
+  },
 ];
 
 const HEALTH_GOALS = [
@@ -62,9 +101,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [healthConditions, setHealthConditions] = useState<string[]>(
     currentUser?.profile?.healthConditions || []
   );
+  const [region, setRegion] = useState<string>(
+    currentUser?.profile?.region || getStoredRegion() || DEFAULT_REGION
+  );
   const [customAllergy, setCustomAllergy] = useState('');
+  const [customCondition, setCustomCondition] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Re-sync form with the saved profile each time the modal opens
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    setAllergies(currentUser.profile?.allergies || []);
+    setDietaryPreferences(currentUser.profile?.dietaryPreferences || ['vegetarian']);
+    setGoals(currentUser.profile?.goals || ['reduce_sugar', 'less_processed']);
+    setHealthConditions(currentUser.profile?.healthConditions || []);
+    setRegion(currentUser.profile?.region || getStoredRegion() || DEFAULT_REGION);
+  }, [isOpen, currentUser]);
 
   if (!isOpen) return null;
 
@@ -129,6 +182,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setGoals((prev) => (prev.includes(goal) ? prev.filter((g) => g !== goal) : [...prev, goal]));
   };
 
+  const handleAddCustomCondition = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = customCondition.trim().toLowerCase();
+    if (!clean) return;
+    if (!healthConditions.includes(clean)) {
+      setHealthConditions([...healthConditions, clean]);
+    }
+    setCustomCondition('');
+  };
+
   const toggleCondition = (cond: string) => {
     setHealthConditions((prev) =>
       prev.includes(cond) ? prev.filter((c) => c !== cond) : [...prev, cond]
@@ -143,7 +206,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         dietaryPreferences,
         goals,
         healthConditions,
+        region,
       });
+      setStoredRegion(region);
       setIsSaving(false);
       setSaveSuccess(true);
       onProfileUpdated(res.user);
@@ -180,8 +245,43 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         {/* Form Body */}
         <div className="p-6 overflow-y-auto space-y-6">
-          {/* Section 1: Food Allergies */}
+          {/* Section 0: Country / Region */}
           <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-emerald-700" />
+              <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">
+                Country / Region
+              </h3>
+            </div>
+            <p className="text-xs text-stone-500">
+              Search results, healthier alternatives and labelling guidelines will be tailored to products sold where you live.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {REGIONS.map((r) => {
+                const isSelected = region === r.code;
+                return (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => setRegion(r.code)}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium text-left border transition-all flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-xs'
+                        : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
+                    }`}
+                  >
+                    <span className="truncate">
+                      {r.flag} {r.name}
+                    </span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Section 1: Food Allergies */}
+          <div className="space-y-3 pt-2 border-t border-stone-200">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-rose-600" />
               <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">
@@ -264,26 +364,34 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 Dietary Preferences
               </h3>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {DIETARY_PREFERENCES.map((pref) => {
-                const isSelected = dietaryPreferences.includes(pref.id);
-                return (
-                  <button
-                    key={pref.id}
-                    type="button"
-                    onClick={() => togglePreference(pref.id)}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-medium text-left border transition-all flex items-center justify-between ${
-                      isSelected
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-xs'
-                        : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
-                    }`}
-                  >
-                    <span>{pref.label}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-emerald-700" />}
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs text-stone-500">
+              Every ingredient list is screened against the restrictions you select.
+            </p>
+            {DIETARY_PREFERENCE_GROUPS.map((group) => (
+              <div key={group.title} className="space-y-2">
+                <h4 className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide">{group.title}</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {group.options.map((pref) => {
+                    const isSelected = dietaryPreferences.includes(pref.id);
+                    return (
+                      <button
+                        key={pref.id}
+                        type="button"
+                        onClick={() => togglePreference(pref.id)}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-medium text-left border transition-all flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-xs'
+                            : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
+                        }`}
+                      >
+                        <span>{pref.label}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-emerald-700" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Section 3: Personal Nutritional Goals */}
@@ -344,6 +452,51 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 );
               })}
             </div>
+
+            {/* Custom Health Consideration Adder */}
+            <form onSubmit={handleAddCustomCondition} className="flex gap-2 pt-1">
+              <input
+                type="text"
+                value={customCondition}
+                onChange={(e) => setCustomCondition(e.target.value)}
+                maxLength={60}
+                placeholder="Add your own (e.g. PCOS, kidney disease, pregnancy, gout, IBS, thyroid)..."
+                className="flex-1 px-3 py-1.5 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:border-emerald-700 text-stone-900"
+              />
+              <button
+                type="submit"
+                disabled={!customCondition.trim()}
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-900 disabled:opacity-40 text-white text-xs font-semibold rounded-lg flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add</span>
+              </button>
+            </form>
+
+            {healthConditions.filter((c) => !HEALTH_CONDITIONS.some((h) => h.id === c)).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {healthConditions
+                  .filter((c) => !HEALTH_CONDITIONS.some((h) => h.id === c))
+                  .map((cust) => (
+                    <span
+                      key={cust}
+                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-blue-100 text-blue-900 border border-blue-200"
+                    >
+                      <span className="capitalize">{cust}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleCondition(cust)}
+                        className="hover:text-blue-700 font-bold ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+              </div>
+            )}
+            <p className="text-[11px] text-stone-500">
+              Common conditions get automatic ingredient checks; anything else is shared with the Dietitian&apos;s Opinion on each product.
+            </p>
           </div>
         </div>
 

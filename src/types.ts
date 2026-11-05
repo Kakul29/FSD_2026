@@ -3,6 +3,7 @@ export interface IUserProfile {
   dietaryPreferences: string[];
   goals: string[];
   healthConditions: string[];
+  region?: string;
 }
 
 export interface IUser {
@@ -100,7 +101,24 @@ export interface IFormattedProduct {
   };
   isIndianBrand: boolean;
   availableInIndia: boolean;
+  region: string;
+  regionName: string;
+  availableRegions: string[];
+  availableInRegion: boolean;
+  isLocalBrand: boolean;
   dataSource: 'openfoodfacts_live' | 'verified_catalog';
+}
+
+export interface IDietitianOpinion {
+  verdict: 'everyday' | 'occasional' | 'rarely' | 'avoid';
+  verdictLabel: string;
+  summary: string;
+  portionAdvice: string;
+  pairingTips: string[];
+  watchOuts: string[];
+  goodFor: string[];
+  source: 'ai' | 'rule_based';
+  disclaimer: string;
 }
 
 export interface IAlternativeItem {

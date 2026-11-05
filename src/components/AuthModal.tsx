@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Lock, Mail, User, AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
-import { api, setStoredToken } from '../services/api';
+import { api, setStoredToken, getStoredRegion } from '../services/api';
 import { IUser } from '../types';
 
 interface AuthModalProps {
@@ -44,6 +44,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             dietaryPreferences: ['vegetarian'],
             goals: ['reduce_sugar', 'less_processed'],
             healthConditions: [],
+            region: getStoredRegion() || 'IN',
           },
         });
         setStoredToken(res.token);

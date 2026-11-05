@@ -64,6 +64,26 @@ const ALLERGEN_SYNONYMS: Record<string, { synonyms: string[]; directTerms: strin
     directTerms: ['shellfish', 'crustacean', 'crustaceans', 'mollusc', 'molluscs', 'prawn', 'prawns', 'shrimp', 'shrimps', 'crab', 'lobster'],
     synonyms: ['clam', 'oyster', 'mussel', 'squid', 'calamari', 'octopus', 'crawfish', 'glucosamine'],
   },
+  mustard: {
+    directTerms: ['mustard', 'mustard seed', 'mustard seeds', 'rai', 'sarson'],
+    synonyms: ['mustard oil', 'mustard powder', 'dijon', 'brassica juncea'],
+  },
+  celery: {
+    directTerms: ['celery', 'celeriac', 'celery seed'],
+    synonyms: ['celery salt', 'celery powder', 'spice extracts (contains celery)'],
+  },
+  sulphites: {
+    directTerms: ['sulphites', 'sulphite', 'sulfites', 'sulfite', 'sulphur dioxide', 'sulfur dioxide'],
+    synonyms: ['metabisulphite', 'metabisulfite', 'ins 220', 'ins 223', 'ins 224', 'e220', 'e223', 'e224'],
+  },
+  lupin: {
+    directTerms: ['lupin', 'lupine', 'lupin flour'],
+    synonyms: ['lupini', 'lupin protein'],
+  },
+  corn: {
+    directTerms: ['corn', 'maize', 'cornflour', 'corn starch', 'cornstarch'],
+    synonyms: ['corn syrup', 'high fructose corn syrup', 'makka', 'polenta', 'maltodextrin (made from corn)'],
+  },
 };
 
 /**

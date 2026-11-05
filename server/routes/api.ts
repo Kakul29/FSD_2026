@@ -10,8 +10,17 @@ import {
   formatProductData,
 } from '../services/openFoodFacts';
 import { GoogleGenAI } from '@google/genai';
+import { REGIONS } from '../../shared/regions';
+import { getDietitianOpinion } from '../services/dietitianOpinion';
 
 const router = Router();
+
+// Region from ?region= query param (guest selection) falls back to the saved profile region
+function resolveRegion(req: Request, userProfile?: any): string | undefined {
+  const fromQuery = typeof req.query.region === 'string' ? req.query.region.toUpperCase() : undefined;
+  if (fromQuery && REGIONS.some((r) => r.code === fromQuery)) return fromQuery;
+  return userProfile?.region;
+}
 
 // ==========================================
 // 1. Health-Check Endpoint (Requirement 9)
@@ -163,13 +172,28 @@ router.get('/auth/me', requireAuth, async (req: AuthRequest, res: Response) => {
 // ==========================================
 router.put('/user/profile', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { allergies, dietaryPreferences, goals, healthConditions } = req.body;
+    const { allergies, dietaryPreferences, goals, healthConditions, region } = req.body;
+
+    if (region !== undefined && !REGIONS.some((r) => r.code === region)) {
+      return res.status(400).json({ error: 'Unsupported region code' });
+    }
 
     const updated = await UserRepository.updateProfile(req.user!.id, {
       allergies: Array.isArray(allergies) ? allergies : undefined,
       dietaryPreferences: Array.isArray(dietaryPreferences) ? dietaryPreferences : undefined,
       goals: Array.isArray(goals) ? goals : undefined,
-      healthConditions: Array.isArray(healthConditions) ? healthConditions : undefined,
+      // Custom conditions are free text: trim, cap length and count
+      healthConditions: Array.isArray(healthConditions)
+        ? Array.from(
+            new Set(
+              healthConditions
+                .filter((c: unknown) => typeof c === 'string')
+                .map((c: string) => c.trim().slice(0, 60))
+                .filter(Boolean)
+            )
+          ).slice(0, 20)
+        : undefined,
+      region: typeof region === 'string' ? region : undefined,
     });
 
     if (!updated) {
@@ -275,14 +299,14 @@ router.get('/products/barcode/:barcode', optionalAuth, async (req: AuthRequest, 
       }
     }
 
-    const product = await getProductByBarcode(barcode, userProfile);
+    const product = await getProductByBarcode(barcode, userProfile, resolveRegion(req, userProfile));
 
     if (!product) {
       return res.status(404).json({
         error: 'Product not found',
         barcode,
         message:
-          'No product matching this barcode could be found in Open Food Facts or our verified Indian packaged foods catalog. Please check the barcode digits or search by product name.',
+          'No product matching this barcode could be found in Open Food Facts or our verified packaged foods catalog. Please check the barcode digits or search by product name.',
       });
     }
 
@@ -319,7 +343,7 @@ router.get('/products/search', optionalAuth, async (req: AuthRequest, res: Respo
       if (user) userProfile = (user as any).profile;
     }
 
-    const products = await searchProducts(query, filter, userProfile);
+    const products = await searchProducts(query, filter, userProfile, resolveRegion(req, userProfile));
 
     res.json({
       query,
@@ -344,12 +368,13 @@ router.get('/products/:barcode/alternatives', optionalAuth, async (req: AuthRequ
       if (user) userProfile = (user as any).profile;
     }
 
-    const targetProduct = await getProductByBarcode(barcode, userProfile);
+    const region = resolveRegion(req, userProfile);
+    const targetProduct = await getProductByBarcode(barcode, userProfile, region);
     if (!targetProduct) {
       return res.status(404).json({ error: 'Target product not found' });
     }
 
-    const alternativesData = await findHealthierAlternatives(targetProduct, userProfile);
+    const alternativesData = await findHealthierAlternatives(targetProduct, userProfile, region);
 
     res.json(alternativesData);
   } catch (err: any) {
@@ -358,7 +383,38 @@ router.get('/products/:barcode/alternatives', optionalAuth, async (req: AuthRequ
 });
 
 // ==========================================
-// 5. Deep AI Ingredient Insights (Gemini)
+// 5. Dietitian's Opinion (personalised, AI when configured)
+// ==========================================
+router.post('/ai/dietitian-opinion', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { barcode } = req.body;
+    if (!barcode) {
+      return res.status(400).json({ error: 'Barcode is required' });
+    }
+
+    let userProfile = undefined;
+    if (req.user) {
+      const user = await UserRepository.findById(req.user.id);
+      if (user) userProfile = (user as any).profile;
+    }
+
+    const region = typeof req.body.region === 'string' && REGIONS.some((r) => r.code === req.body.region)
+      ? req.body.region
+      : userProfile?.region;
+    const product = await getProductByBarcode(barcode, userProfile, region);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const opinion = await getDietitianOpinion(product, userProfile);
+    res.json({ opinion, personalised: Boolean(userProfile) });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Dietitian opinion failed', message: err.message });
+  }
+});
+
+// ==========================================
+// 6. Deep AI Ingredient Insights (Gemini)
 // ==========================================
 router.post('/ai/deep-insights', async (req: Request, res: Response) => {
   try {

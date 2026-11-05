@@ -18,6 +18,12 @@ const POPULAR_DEMO_BARCODES = [
   { barcode: '8801043002883', name: 'Shin Ramyun Spicy Ramen', brand: 'Nongshim' },
   { barcode: '8906082520012', name: 'Natural Greek Yogurt (High Protein)', brand: 'Epigamia' },
   { barcode: '7622201124567', name: 'Dairy Milk Chocolate', brand: 'Cadbury' },
+  { barcode: '3017620422003', name: 'Nutella Hazelnut Spread', brand: 'Ferrero' },
+  { barcode: '5449000000996', name: 'Coca-Cola Original Taste', brand: 'Coca-Cola' },
+  { barcode: '2000100000045', name: 'Aloo Bhujia', brand: "Haldiram's" },
+  { barcode: '2000000000116', name: 'Goldbears Gummy Bears', brand: 'Haribo' },
+  { barcode: '2000300000025', name: 'Baked Beanz in Tomato Sauce', brand: 'Heinz' },
+  { barcode: '2000200000103', name: 'Plain Non-Fat Greek Yogurt', brand: 'Chobani' },
 ];
 
 export const ScannerModal: React.FC<ScannerModalProps> = ({

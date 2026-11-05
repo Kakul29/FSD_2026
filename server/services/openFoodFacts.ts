@@ -2,6 +2,8 @@ import { analyzeNutrition, INutritionAnalysis } from './nutritionAnalyzer';
 import { evaluateAllergens, IAllergenAnalysisResult } from './allergenEngine';
 import { evaluatePersonalizedWarnings, IPersonalizedAlert } from './personalizedWarnings';
 import { IUserProfile } from '../models/User';
+import { EXTENDED_PRODUCT_CATALOG } from '../data/productCatalog';
+import { REGIONS, getRegion, DEFAULT_REGION } from '../../shared/regions';
 
 export interface IFormattedProduct {
   barcode: string;
@@ -24,12 +26,17 @@ export interface IFormattedProduct {
   };
   isIndianBrand: boolean;
   availableInIndia: boolean;
+  region: string;
+  regionName: string;
+  availableRegions: string[];
+  availableInRegion: boolean;
+  isLocalBrand: boolean;
   dataSource: 'openfoodfacts_live' | 'verified_catalog';
 }
 
 // Curated verified catalog of popular Indian & International products in India
 // Designed with verified FSSAI nutritional labels for instant, reliable demonstrations
-export const VERIFIED_PRODUCT_CATALOG: Record<string, any> = {
+const CORE_INDIA_CATALOG: Record<string, any> = {
   // 1. Maggi 2-Minute Masala Noodles (Nestlé)
   '8901058862392': {
     barcode: '8901058862392',
@@ -161,6 +168,7 @@ export const VERIFIED_PRODUCT_CATALOG: Record<string, any> = {
     tracesTags: ['en:crustaceans', 'en:eggs', 'en:fish', 'en:milk', 'en:peanuts', 'en:sesame-seeds'],
     isIndianBrand: false,
     availableInIndia: true,
+    regions: ['IN', 'US', 'GB', 'CA', 'AU', 'AE', 'SG', 'DE', 'FR', 'JP'],
     nutrients: {
       'energy-kcal': 430,
       sugars: 3.0,
@@ -364,6 +372,7 @@ export const VERIFIED_PRODUCT_CATALOG: Record<string, any> = {
     tracesTags: ['en:tree-nuts', 'en:wheat', 'en:soybeans'],
     isIndianBrand: false,
     availableInIndia: true,
+    regions: ['IN', 'GB', 'AU', 'AE', 'SG', 'CA'],
     nutrients: {
       'energy-kcal': 532,
       sugars: 57.0, // Extremely high sugar
@@ -494,14 +503,66 @@ export const VERIFIED_PRODUCT_CATALOG: Record<string, any> = {
   },
 };
 
+export const VERIFIED_PRODUCT_CATALOG: Record<string, any> = {
+  ...CORE_INDIA_CATALOG,
+  ...EXTENDED_PRODUCT_CATALOG,
+};
+
+// Approximate GS1 company-prefix origin (where the barcode was registered)
+const GS1_PREFIX_ORIGIN: Array<[RegExp, string]> = [
+  [/^890/, 'IN'],
+  [/^75[45]/, 'CA'],
+  [/^(0|1[0-3])/, 'US'],
+  [/^5[01]/, 'GB'],
+  [/^93/, 'AU'],
+  [/^629/, 'AE'],
+  [/^888/, 'SG'],
+  [/^4[0-4]/, 'DE'],
+  [/^3[0-7]/, 'FR'],
+  [/^4[59]/, 'JP'],
+];
+
+function inferOriginRegion(barcode: string): string | null {
+  if (barcode.startsWith('2')) return null;
+  const match = GS1_PREFIX_ORIGIN.find(([re]) => re.test(barcode));
+  return match ? match[1] : null;
+}
+
+/** Resolve region codes a product is sold in, from catalog data or Open Food Facts country tags */
+function resolveAvailableRegions(raw: any, barcode: string): string[] {
+  if (Array.isArray(raw.regions)) return raw.regions;
+  if (raw.availableInIndia === true) return ['IN'];
+
+  const countryTags: string[] = raw.countries_tags || [];
+  const countriesText = (raw.countries || '').toLowerCase();
+  const found = REGIONS.filter(
+    (r) =>
+      r.offCountry &&
+      (countryTags.includes(r.offCountry) ||
+        countriesText.includes(r.offCountry.replace('en:', '').replace(/-/g, ' ')))
+  ).map((r) => r.code);
+
+  if (found.length === 0 && barcode.startsWith('890')) return ['IN'];
+  return found;
+}
+
+/** Catalog products filtered to a region ('ALL' returns everything) */
+function catalogForRegion(regionCode: string): any[] {
+  const items = Object.values(VERIFIED_PRODUCT_CATALOG);
+  if (regionCode === 'ALL') return items;
+  return items.filter((item) => resolveAvailableRegions(item, item.barcode).includes(regionCode));
+}
+
 /**
  * Format raw Open Food Facts item or curated product into standardized IFormattedProduct
  */
 export function formatProductData(
   raw: any,
   userProfile?: IUserProfile,
-  source: 'openfoodfacts_live' | 'verified_catalog' = 'openfoodfacts_live'
+  source: 'openfoodfacts_live' | 'verified_catalog' = 'openfoodfacts_live',
+  regionCode: string = userProfile?.region || DEFAULT_REGION
 ): IFormattedProduct {
+  const region = getRegion(regionCode);
   const barcode = raw.code || raw.barcode || 'unknown';
   const name =
     raw.product_name_en ||
@@ -564,7 +625,14 @@ export function formatProductData(
 
   // Run personalized nutrition warnings
   const personalizedWarnings = userProfile
-    ? evaluatePersonalizedWarnings(userProfile, nutrients, ingredientsText, nutritionAnalysis.novaGroup)
+    ? evaluatePersonalizedWarnings(
+        userProfile,
+        nutrients,
+        ingredientsText,
+        nutritionAnalysis.novaGroup,
+        allergensTags,
+        region.authority
+      )
     : undefined;
 
   // Determine Indian brand or Indian market availability
@@ -584,6 +652,9 @@ export function formatProductData(
         (b) => brand.toLowerCase().includes(b)
       ));
 
+  const availableRegions = resolveAvailableRegions(raw, barcode);
+  const originRegion = raw.originRegion || inferOriginRegion(barcode) || (isIndianBrand ? 'IN' : null);
+
   return {
     barcode,
     name,
@@ -601,6 +672,12 @@ export function formatProductData(
     personalizedWarnings,
     isIndianBrand,
     availableInIndia: isAvailableInIndia,
+    region: region.code,
+    regionName: region.name,
+    availableRegions,
+    availableInRegion:
+      region.code === 'ALL' ? availableRegions.length > 0 : availableRegions.includes(region.code),
+    isLocalBrand: region.code !== 'ALL' && originRegion === region.code,
     dataSource: source,
   };
 }
@@ -612,13 +689,15 @@ export function formatProductData(
  */
 export async function getProductByBarcode(
   barcode: string,
-  userProfile?: IUserProfile
+  userProfile?: IUserProfile,
+  regionCode?: string
 ): Promise<IFormattedProduct | null> {
   const cleanBarcode = barcode.trim();
+  const region = getRegion(regionCode || userProfile?.region).code;
 
   // 1. Check curated catalog first
   if (VERIFIED_PRODUCT_CATALOG[cleanBarcode]) {
-    return formatProductData(VERIFIED_PRODUCT_CATALOG[cleanBarcode], userProfile, 'verified_catalog');
+    return formatProductData(VERIFIED_PRODUCT_CATALOG[cleanBarcode], userProfile, 'verified_catalog', region);
   }
 
   // 2. Fetch from Open Food Facts API v2
@@ -637,19 +716,20 @@ export async function getProductByBarcode(
     if (res.ok) {
       const data = await res.json();
       if (data.status === 1 && data.product) {
-        return formatProductData(data.product, userProfile, 'openfoodfacts_live');
+        return formatProductData(data.product, userProfile, 'openfoodfacts_live', region);
       }
     }
   } catch (err: any) {
     console.warn(`[OpenFoodFacts] Live lookup error for barcode ${cleanBarcode}:`, err.message);
   }
 
-  // 3. Fallback partial match in verified catalog
-  const partialMatchKey = Object.keys(VERIFIED_PRODUCT_CATALOG).find(
-    (k) => k.includes(cleanBarcode) || cleanBarcode.includes(k)
-  );
+  // 3. Fallback partial match in verified catalog (only for reasonably long inputs)
+  const partialMatchKey =
+    cleanBarcode.length >= 8
+      ? Object.keys(VERIFIED_PRODUCT_CATALOG).find((k) => k.includes(cleanBarcode) || cleanBarcode.includes(k))
+      : undefined;
   if (partialMatchKey) {
-    return formatProductData(VERIFIED_PRODUCT_CATALOG[partialMatchKey], userProfile, 'verified_catalog');
+    return formatProductData(VERIFIED_PRODUCT_CATALOG[partialMatchKey], userProfile, 'verified_catalog', region);
   }
 
   return null;
@@ -662,32 +742,38 @@ export async function getProductByBarcode(
 export async function searchProducts(
   query: string,
   filterType?: 'lower_sugar' | 'lower_sodium' | 'higher_protein' | 'higher_fibre' | 'less_processed' | 'all',
-  userProfile?: IUserProfile
+  userProfile?: IUserProfile,
+  regionCode?: string
 ): Promise<IFormattedProduct[]> {
   const cleanQuery = query.toLowerCase().trim();
+  const region = getRegion(regionCode || userProfile?.region);
   const results: IFormattedProduct[] = [];
   const seenBarcodes = new Set<string>();
 
-  // 1. Search verified catalog first for guaranteed high-quality matches
-  for (const item of Object.values(VERIFIED_PRODUCT_CATALOG)) {
+  // 1. Search verified catalog (products sold in the user's region) for high-quality matches
+  for (const item of catalogForRegion(region.code)) {
     const searchString = `${item.name} ${item.brand} ${item.category} ${item.categories.join(' ')}`.toLowerCase();
     if (
       searchString.includes(cleanQuery) ||
       cleanQuery.split(' ').some((word) => word.length > 2 && searchString.includes(word))
     ) {
-      results.push(formatProductData(item, userProfile, 'verified_catalog'));
+      results.push(formatProductData(item, userProfile, 'verified_catalog', region.code));
       seenBarcodes.add(item.barcode);
     }
   }
 
-  // 2. Query Open Food Facts Search API
+  // 2. Query Open Food Facts Search API, restricted to products sold in the region
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
       cleanQuery
-    )}&search_simple=1&action=process&json=1&page_size=18`;
+    )}&search_simple=1&action=process&json=1&page_size=18${
+      region.offCountry
+        ? `&tagtype_0=countries&tag_contains_0=contains&tag_0=${encodeURIComponent(region.offCountry)}`
+        : ''
+    }`;
 
     const res = await fetch(url, {
       headers: {
@@ -702,7 +788,7 @@ export async function searchProducts(
       if (data.products && Array.isArray(data.products)) {
         for (const p of data.products) {
           if (p.code && !seenBarcodes.has(p.code) && (p.product_name || p.product_name_en)) {
-            results.push(formatProductData(p, userProfile, 'openfoodfacts_live'));
+            results.push(formatProductData(p, userProfile, 'openfoodfacts_live', region.code));
             seenBarcodes.add(p.code);
           }
         }
@@ -791,8 +877,10 @@ export interface IAlternativeComparison {
  */
 export async function findHealthierAlternatives(
   targetProduct: IFormattedProduct,
-  userProfile?: IUserProfile
+  userProfile?: IUserProfile,
+  regionCode?: string
 ): Promise<IAlternativeComparison> {
+  const region = getRegion(regionCode || userProfile?.region);
   const targetCategory = targetProduct.category;
   const targetScore = targetProduct.nutritionAnalysis.healthScore;
 
@@ -806,8 +894,8 @@ export async function findHealthierAlternatives(
   const candidatePool: IFormattedProduct[] = [];
   const seenBarcodes = new Set<string>([targetProduct.barcode]);
 
-  // First check curated catalog for matching category
-  for (const item of Object.values(VERIFIED_PRODUCT_CATALOG)) {
+  // First check curated catalog (products sold in the user's region) for matching category
+  for (const item of catalogForRegion(region.code)) {
     if (item.barcode === targetProduct.barcode) continue;
     const isSameCategory =
       item.category.toLowerCase().includes(targetCategory.toLowerCase()) ||
@@ -817,7 +905,7 @@ export async function findHealthierAlternatives(
       );
 
     if (isSameCategory) {
-      candidatePool.push(formatProductData(item, userProfile, 'verified_catalog'));
+      candidatePool.push(formatProductData(item, userProfile, 'verified_catalog', region.code));
       seenBarcodes.add(item.barcode);
     }
   }
@@ -825,7 +913,7 @@ export async function findHealthierAlternatives(
   // Also query live search if candidate pool has < 6
   if (candidatePool.length < 6) {
     try {
-      const liveCandidates = await searchProducts(targetCategory, 'all', userProfile);
+      const liveCandidates = await searchProducts(targetCategory, 'all', userProfile, region.code);
       for (const p of liveCandidates) {
         if (!seenBarcodes.has(p.barcode) && p.barcode !== targetProduct.barcode) {
           candidatePool.push(p);
@@ -935,7 +1023,7 @@ export async function findHealthierAlternatives(
   } else if (alternatives.length < 6) {
     explanation = `Found ${alternatives.length} verified alternatives in '${targetCategory}'. Fewer than 6 products could be verified with complete nutritional data in this category.`;
   } else {
-    explanation = `Top-ranked healthier choice followed by 5 suitable alternatives in '${targetCategory}', verified for Indian market availability and allergen safety.`;
+    explanation = `Top-ranked healthier choice followed by 5 suitable alternatives in '${targetCategory}', verified for ${region.code === 'ALL' ? 'global' : region.name} market availability and allergen safety.`;
   }
 
   return {

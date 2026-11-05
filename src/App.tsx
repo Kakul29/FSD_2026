@@ -14,6 +14,7 @@ import {
   Database,
   CheckCircle2,
   Filter,
+  MapPin,
 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { ScannerModal } from './components/ScannerModal';
@@ -21,19 +22,9 @@ import { ProductDetailModal } from './components/ProductDetailModal';
 import { ProfileModal } from './components/ProfileModal';
 import { AuthModal } from './components/AuthModal';
 import { FavoritesModal } from './components/FavoritesModal';
-import { api, getStoredToken, clearStoredToken } from './services/api';
+import { api, getStoredToken, clearStoredToken, getStoredRegion, setStoredRegion } from './services/api';
 import { IFormattedProduct, IUser, IHistoryItem } from './types';
-
-// Curated quick craving suggestions
-const CRAVING_SUGGESTIONS = [
-  'Maggi',
-  'nachos',
-  'ramen',
-  'chocolate',
-  'biscuits',
-  'Greek yogurt',
-  'millet noodles',
-];
+import { REGIONS, DEFAULT_REGION, getRegion } from '../shared/regions';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<IUser | null>(null);
@@ -53,6 +44,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<IFormattedProduct[]>([]);
   const [searchSubmitted, setSearchSubmitted] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [showAllResults, setShowAllResults] = useState(false);
 
   // Recently Viewed
   const [recentProducts, setRecentProducts] = useState<IHistoryItem[]>([]);
@@ -61,6 +53,11 @@ export default function App() {
 
   // System Health Status
   const [healthStatus, setHealthStatus] = useState<any>(null);
+
+  // Shopping region: saved profile region for signed-in users, otherwise the guest's local choice
+  const [guestRegion, setGuestRegion] = useState<string>(getStoredRegion() || DEFAULT_REGION);
+  const region = currentUser?.profile?.region || guestRegion;
+  const regionInfo = getRegion(region);
 
   // Load user session and health check on mount
   useEffect(() => {
@@ -96,7 +93,7 @@ export default function App() {
     try {
       setIsLoadingProduct(true);
       setIsScannerOpen(false);
-      const res = await api.getProductByBarcode(barcode);
+      const res = await api.getProductByBarcode(barcode, region);
       setSelectedProduct(res.product);
 
       // Refresh recent items
@@ -123,10 +120,16 @@ export default function App() {
   };
 
   // Search handler
-  const handleSearch = async (e?: React.FormEvent, customQuery?: string, customFilter?: typeof activeFilter) => {
+  const handleSearch = async (
+    e?: React.FormEvent,
+    customQuery?: string,
+    customFilter?: typeof activeFilter,
+    customRegion?: string
+  ) => {
     if (e) e.preventDefault();
     const queryToUse = customQuery !== undefined ? customQuery : searchQuery;
     const filterToUse = customFilter !== undefined ? customFilter : activeFilter;
+    const regionToUse = customRegion !== undefined ? customRegion : region;
 
     if (!queryToUse.trim()) return;
 
@@ -134,8 +137,9 @@ export default function App() {
       setIsSearching(true);
       setSearchSubmitted(true);
       setSearchError(null);
-      const data = await api.searchProducts(queryToUse, filterToUse);
+      const data = await api.searchProducts(queryToUse, filterToUse, regionToUse);
       setSearchResults(data.results);
+      setShowAllResults(false);
     } catch (err: any) {
       setSearchError(err.message || 'Search failed. Please try again.');
     } finally {
@@ -148,6 +152,19 @@ export default function App() {
     setActiveFilter(filter);
     if (searchSubmitted && searchQuery.trim()) {
       handleSearch(undefined, searchQuery, filter);
+    }
+  };
+
+  // Switch shopping region; persisted to the profile when signed in
+  const handleRegionChange = async (newRegion: string) => {
+    setGuestRegion(newRegion);
+    setStoredRegion(newRegion);
+    if (currentUser) {
+      setCurrentUser({ ...currentUser, profile: { ...currentUser.profile, region: newRegion } });
+      api.updateProfile({ region: newRegion }).catch((err) => console.warn('Failed to save region:', err));
+    }
+    if (searchSubmitted && searchQuery.trim()) {
+      handleSearch(undefined, searchQuery, activeFilter, newRegion);
     }
   };
 
@@ -210,7 +227,7 @@ export default function App() {
             </h1>
 
             <p className="text-stone-300 text-sm sm:text-base leading-relaxed max-w-2xl">
-              Scan any packaged food barcode to reveal transparent health scores, uncover hidden sugars and ultra-processing, detect your personal allergens, and discover healthier Indian &amp; international alternatives.
+              Scan any packaged food barcode to reveal transparent health scores, uncover hidden sugars and ultra-processing, detect your personal allergens, and discover healthier local &amp; international alternatives available where you shop.
             </p>
 
             {/* Two Primary Action Cards Strip */}
@@ -257,7 +274,7 @@ export default function App() {
               <p className="text-xs text-amber-800/90 mt-0.5">
                 {currentUser
                   ? 'All food labels and alternative recommendations are actively vetted against your profile.'
-                  : 'Add your allergies (peanuts, milk, wheat, etc.), dietary preferences (veg, Jain), and sugar/sodium targets for instant live warnings.'}
+                  : 'Add your country, allergies (peanuts, milk, wheat, etc.), dietary preferences (veg, Jain, halal, gluten-free, keto and more), and sugar/sodium targets for instant live warnings.'}
               </p>
             </div>
           </div>
@@ -309,10 +326,28 @@ export default function App() {
             </div>
           </form>
 
+          {/* Shopping Region Selector */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+            <MapPin className="w-4 h-4 text-emerald-700" />
+            <span className="font-medium text-stone-700">Shopping in:</span>
+            <select
+              value={region}
+              onChange={(e) => handleRegionChange(e.target.value)}
+              className="px-2.5 py-1 bg-white border border-stone-300 rounded-lg focus:outline-none focus:border-emerald-700 text-stone-900 text-xs cursor-pointer"
+            >
+              {REGIONS.map((r) => (
+                <option key={r.code} value={r.code}>
+                  {r.flag} {r.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-stone-400">Products and alternatives are matched to this market.</span>
+          </div>
+
           {/* Craving Suggestion Quick Buttons */}
           <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
             <span className="font-medium text-stone-700">Popular Cravings:</span>
-            {CRAVING_SUGGESTIONS.map((item) => (
+            {regionInfo.cravings.map((item) => (
               <button
                 key={item}
                 onClick={() => {
@@ -394,7 +429,9 @@ export default function App() {
           {isSearching ? (
             <div className="p-12 text-center text-xs text-stone-500 flex flex-col items-center justify-center gap-3">
               <RefreshCw className="w-6 h-6 animate-spin text-emerald-800" />
-              <p>Searching Open Food Facts &amp; verified Indian packaged food database...</p>
+              <p>
+                Searching Open Food Facts &amp; verified packaged food database for {regionInfo.name}...
+              </p>
             </div>
           ) : searchSubmitted && searchResults.length > 0 ? (
             <div className="space-y-6 pt-2">
@@ -458,10 +495,12 @@ export default function App() {
               {searchResults.length > 1 && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-semibold text-stone-700 uppercase tracking-wide">
-                    Additional Options in this Category ({Math.min(5, searchResults.length - 1)})
+                    Additional Options in this Category (
+                    {showAllResults ? searchResults.length - 1 : Math.min(5, searchResults.length - 1)}
+                    {!showAllResults && searchResults.length > 6 ? ` of ${searchResults.length - 1}` : ''})
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {searchResults.slice(1, 6).map((item, idx) => (
+                    {searchResults.slice(1, showAllResults ? undefined : 6).map((item, idx) => (
                       <div
                         key={item.barcode}
                         className="p-4 bg-white rounded-2xl border border-stone-200 hover:border-emerald-600/50 hover:shadow-xs transition-all flex flex-col justify-between space-y-3"
@@ -489,7 +528,11 @@ export default function App() {
 
                         <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
                           <span className="text-[11px] text-stone-500 truncate max-w-[140px]">
-                            {item.availableInIndia ? 'In India' : 'International'}
+                            {item.availableInRegion
+                              ? region === 'ALL'
+                                ? `Sold in ${item.availableRegions.length} regions`
+                                : `In ${regionInfo.name}`
+                              : 'International'}
                           </span>
                           <button
                             onClick={() => setSelectedProduct(item)}
@@ -502,6 +545,16 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                  {searchResults.length > 6 && (
+                    <div className="flex justify-center pt-1">
+                      <button
+                        onClick={() => setShowAllResults((prev) => !prev)}
+                        className="px-4 py-2 bg-white hover:bg-emerald-50 hover:text-emerald-900 border border-stone-200 rounded-lg text-xs font-semibold text-stone-700 transition-colors cursor-pointer"
+                      >
+                        {showAllResults ? 'Show fewer options' : `Show all ${searchResults.length - 1} options`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -509,7 +562,8 @@ export default function App() {
             <div className="p-8 text-center bg-white rounded-2xl border border-stone-200 text-stone-600 space-y-1">
               <p className="font-semibold text-sm">No products found matching &quot;{searchQuery}&quot;</p>
               <p className="text-xs text-stone-400">
-                Try searching for common staples like &quot;ramen&quot;, &quot;nachos&quot;, &quot;maggi&quot;, &quot;biscuits&quot;, or &quot;chocolate&quot;.
+                Try searching for common staples in {regionInfo.name} like{' '}
+                {regionInfo.cravings.slice(0, 4).map((c) => `"${c}"`).join(', ')}, or switch region to &quot;All Regions&quot;.
               </p>
             </div>
           ) : null}

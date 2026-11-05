@@ -6,6 +6,7 @@ export interface IUserProfile {
   dietaryPreferences: string[];
   goals: string[];
   healthConditions: string[];
+  region?: string;
 }
 
 export interface IProductHistoryItem {
@@ -74,6 +75,10 @@ const UserSchema = new Schema<IUser>(
       healthConditions: {
         type: [String],
         default: [],
+      },
+      region: {
+        type: String,
+        default: 'IN',
       },
     },
     history: [
@@ -147,6 +152,7 @@ async function seedDemoUser() {
         dietaryPreferences: ['vegetarian'],
         goals: ['reduce_sugar', 'less_processed', 'increase_protein'],
         healthConditions: ['high_blood_pressure'],
+        region: 'IN',
       },
       history: [
         {
@@ -249,6 +255,7 @@ export class UserRepository {
         dietaryPreferences: userData.profile?.dietaryPreferences || ['vegetarian'],
         goals: userData.profile?.goals || ['reduce_sugar', 'less_processed'],
         healthConditions: userData.profile?.healthConditions || [],
+        region: userData.profile?.region || 'IN',
       },
       history: [],
       favorites: [],
@@ -264,11 +271,19 @@ export class UserRepository {
   }
 
   static async updateProfile(id: string, profile: Partial<IUserProfile>) {
+    // Only apply fields that were actually provided, so partial updates (e.g. region only) keep the rest
+    const provided = Object.fromEntries(
+      Object.entries(profile).filter(([, value]) => value !== undefined)
+    ) as Partial<IUserProfile>;
+
     if (mongoose.connection.readyState === 1) {
       try {
+        const setFields = Object.fromEntries(
+          Object.entries(provided).map(([key, value]) => [`profile.${key}`, value])
+        );
         return await MongooseUserModel.findByIdAndUpdate(
           id,
-          { $set: { profile: profile } },
+          { $set: setFields },
           { new: true }
         ).select('-password');
       } catch (err) {
@@ -280,7 +295,7 @@ export class UserRepository {
       if (user._id === id) {
         user.profile = {
           ...user.profile,
-          ...profile,
+          ...provided,
         };
         user.updatedAt = new Date();
         const { password, ...rest } = user;

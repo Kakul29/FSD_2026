@@ -3,6 +3,7 @@ import {
   IUserProfile,
   IFormattedProduct,
   IAlternativesResponse,
+  IDietitianOpinion,
 } from '../types';
 
 const TOKEN_KEY = 'labellens_auth_token';
@@ -24,6 +25,22 @@ export function setStoredToken(token: string): void {
 export function clearStoredToken(): void {
   try {
     localStorage.removeItem(TOKEN_KEY);
+  } catch (e) {}
+}
+
+const REGION_KEY = 'labellens_region';
+
+export function getStoredRegion(): string | null {
+  try {
+    return localStorage.getItem(REGION_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function setStoredRegion(region: string): void {
+  try {
+    localStorage.setItem(REGION_KEY, region);
   } catch (e) {}
 }
 
@@ -97,16 +114,28 @@ export const api = {
     }),
 
   // Products
-  getProductByBarcode: (barcode: string) =>
-    apiFetch<{ product: IFormattedProduct }>(`/api/products/barcode/${barcode}`),
-
-  searchProducts: (query: string, filter: string = 'all') =>
-    apiFetch<{ query: string; total: number; bestMatch: IFormattedProduct | null; results: IFormattedProduct[] }>(
-      `/api/products/search?q=${encodeURIComponent(query)}&filter=${encodeURIComponent(filter)}`
+  getProductByBarcode: (barcode: string, region?: string) =>
+    apiFetch<{ product: IFormattedProduct }>(
+      `/api/products/barcode/${barcode}${region ? `?region=${encodeURIComponent(region)}` : ''}`
     ),
 
-  getAlternatives: (barcode: string) =>
-    apiFetch<IAlternativesResponse>(`/api/products/${barcode}/alternatives`),
+  searchProducts: (query: string, filter: string = 'all', region?: string) =>
+    apiFetch<{ query: string; total: number; bestMatch: IFormattedProduct | null; results: IFormattedProduct[] }>(
+      `/api/products/search?q=${encodeURIComponent(query)}&filter=${encodeURIComponent(filter)}${
+        region ? `&region=${encodeURIComponent(region)}` : ''
+      }`
+    ),
+
+  getAlternatives: (barcode: string, region?: string) =>
+    apiFetch<IAlternativesResponse>(
+      `/api/products/${barcode}/alternatives${region ? `?region=${encodeURIComponent(region)}` : ''}`
+    ),
+
+  getDietitianOpinion: (barcode: string, region?: string) =>
+    apiFetch<{ opinion: IDietitianOpinion; personalised: boolean }>('/api/ai/dietitian-opinion', {
+      method: 'POST',
+      body: JSON.stringify({ barcode, region }),
+    }),
 
   getAiInsights: (payload: {
     productName: string;

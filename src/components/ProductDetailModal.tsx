@@ -15,8 +15,9 @@ import {
   TrendingUp,
   Scale,
   RefreshCw,
+  Stethoscope,
 } from 'lucide-react';
-import { IFormattedProduct, IAlternativesResponse, IUser } from '../types';
+import { IFormattedProduct, IAlternativesResponse, IUser, IDietitianOpinion } from '../types';
 import { api } from '../services/api';
 import { HealthScoreModal } from './HealthScoreModal';
 
@@ -48,12 +49,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [aiInsights, setAiInsights] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [dietitianOpinion, setDietitianOpinion] = useState<IDietitianOpinion | null>(null);
+  const [loadingDietitian, setLoadingDietitian] = useState(false);
+  const [dietitianError, setDietitianError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!product || !isOpen) return;
 
     setImageError(false);
     setAiInsights(null);
+    setDietitianOpinion(null);
+    setDietitianError(null);
 
     // Check if in user favorites
     if (currentUser?.favorites) {
@@ -69,7 +75,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       if (!product) return;
       try {
         setLoadingAlternatives(true);
-        const data = await api.getAlternatives(product.barcode);
+        const data = await api.getAlternatives(product.barcode, product.region);
         setAlternativesData(data);
       } catch (err) {
         console.warn('Failed to load alternatives:', err);
@@ -135,7 +141,28 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }
   };
 
+  const handleFetchDietitianOpinion = async () => {
+    if (!product) return;
+    try {
+      setLoadingDietitian(true);
+      setDietitianError(null);
+      const res = await api.getDietitianOpinion(product.barcode, product.region);
+      setDietitianOpinion(res.opinion);
+    } catch (err: any) {
+      setDietitianError('Could not get a dietitian opinion right now: ' + err.message);
+    } finally {
+      setLoadingDietitian(false);
+    }
+  };
+
   if (!isOpen || !product) return null;
+
+  const verdictStyles: Record<IDietitianOpinion['verdict'], string> = {
+    everyday: 'bg-emerald-50 border-emerald-300 text-emerald-900',
+    occasional: 'bg-amber-50 border-amber-300 text-amber-900',
+    rarely: 'bg-amber-100 border-amber-400 text-amber-950',
+    avoid: 'bg-rose-50 border-rose-300 text-rose-900',
+  };
 
   const { nutritionAnalysis, allergenAnalysis, personalizedWarnings } = product;
 
@@ -213,11 +240,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   {product.brand}
                 </span>
                 <span>·</span>
-                <span>{product.availableInIndia ? 'Available in India' : 'International Product'}</span>
-                {product.isIndianBrand && (
+                <span>
+                  {product.region === 'ALL'
+                    ? product.availableRegions.length > 0
+                      ? `Sold in ${product.availableRegions.length} regions`
+                      : 'International Product'
+                    : product.availableInRegion
+                    ? `Available in ${product.regionName}`
+                    : `Not listed for ${product.regionName}`}
+                </span>
+                {product.isLocalBrand && (
                   <>
                     <span>·</span>
-                    <span className="text-amber-800 font-medium">Indian Brand</span>
+                    <span className="text-amber-800 font-medium">Local Brand</span>
                   </>
                 )}
               </div>
@@ -492,6 +527,88 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             )}
           </div>
 
+          {/* Dietitian's Opinion */}
+          <div className="p-4 bg-white rounded-xl border border-stone-200 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Stethoscope className="w-4 h-4 text-emerald-700" />
+                <span className="text-xs font-bold text-stone-800">Dietitian&apos;s Opinion</span>
+                {dietitianOpinion && (
+                  <span className="text-[10px] text-stone-400 uppercase font-semibold">
+                    {dietitianOpinion.source === 'ai' ? 'AI Dietitian' : 'Nutrition Rules'}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleFetchDietitianOpinion}
+                disabled={loadingDietitian}
+                className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 underline underline-offset-4 disabled:opacity-50"
+              >
+                {loadingDietitian ? 'Reviewing Label...' : dietitianOpinion ? 'Ask Again' : 'Ask the Dietitian'}
+              </button>
+            </div>
+
+            {!dietitianOpinion && !loadingDietitian && !dietitianError && (
+              <p className="text-xs text-stone-500">
+                Get a dietitian-style verdict on how often to eat this, sensible portions, what to pair it with, and what to watch
+                for{currentUser ? ' based on your food profile' : ' (sign in for advice personalised to your profile)'}.
+              </p>
+            )}
+
+            {dietitianError && <p className="text-xs text-rose-700">{dietitianError}</p>}
+
+            {dietitianOpinion && (
+              <div className="space-y-3 pt-1 border-t border-stone-200">
+                <div className={`inline-flex items-center px-3 py-1 rounded-lg border text-xs font-bold ${verdictStyles[dietitianOpinion.verdict]}`}>
+                  {dietitianOpinion.verdictLabel}
+                </div>
+                <p className="text-xs text-stone-700 leading-relaxed">{dietitianOpinion.summary}</p>
+
+                <div className="p-3 bg-stone-50 rounded-lg border border-stone-200">
+                  <span className="text-[11px] font-semibold text-stone-500 uppercase block mb-0.5">Portion Advice</span>
+                  <p className="text-xs text-stone-700">{dietitianOpinion.portionAdvice}</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {dietitianOpinion.watchOuts.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-semibold text-stone-500 uppercase">Watch Out For</span>
+                      {dietitianOpinion.watchOuts.map((w, i) => (
+                        <div key={i} className="flex items-start gap-1.5 text-xs text-amber-800">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{w}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {dietitianOpinion.goodFor.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-semibold text-stone-500 uppercase">Good For</span>
+                      {dietitianOpinion.goodFor.map((g, i) => (
+                        <div key={i} className="flex items-start gap-1.5 text-xs text-emerald-800">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                          <span>{g}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-stone-500 uppercase">How to Make It Healthier</span>
+                  {dietitianOpinion.pairingTips.map((tip, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-xs text-stone-700">
+                      <ChevronRight className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
+                      <span>{tip}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[10px] text-stone-400 leading-relaxed">{dietitianOpinion.disclaimer}</p>
+              </div>
+            )}
+          </div>
+
           {/* REQUIREMENT 5: HEALTHIER ALTERNATIVES SECTION */}
           <div className="space-y-3 pt-2">
             <div className="border-t border-stone-200 pt-4">
@@ -500,7 +617,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </h3>
               <p className="text-xs text-stone-500 mt-0.5">
                 {alternativesData?.explanation ||
-                  'Discover verified alternatives in India with superior nutritional balance, matching your dietary preferences.'}
+                  `Discover verified alternatives ${product.region === 'ALL' ? 'worldwide' : `in ${product.regionName}`} with superior nutritional balance, matching your dietary preferences.`}
               </p>
             </div>
 
