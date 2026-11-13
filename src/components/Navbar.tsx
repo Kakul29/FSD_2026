@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, Search, User, Heart, Sparkles, LogOut, CheckCircle2 } from 'lucide-react';
+import { Camera, Search, User, Heart, Sparkles, LogOut, CheckCircle2, Stethoscope } from 'lucide-react';
 import { IUser } from '../types';
 
 interface NavbarProps {
@@ -76,6 +76,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Heart className="w-4 h-4 text-rose-500" />
               <span>Favorites</span>
             </button>
+            <a
+              href="/dietitian"
+              className="flex items-center gap-1.5 hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0 py-1"
+            >
+              <Stethoscope className="w-4 h-4 text-emerald-700" />
+              <span>For Dietitians</span>
+            </a>
           </nav>
 
           {/* Zone 3: 1 Primary Action */}

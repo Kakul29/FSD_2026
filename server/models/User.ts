@@ -28,10 +28,15 @@ export interface IFavoriteItem {
   savedAt: Date;
 }
 
+export type UserRole = 'user' | 'dietitian';
+
 export interface IUser extends Document {
   email: string;
   password: string;
   name: string;
+  role: UserRole;
+  // Dietitians only: professional registration / licence number shown next to their reviews
+  credentials?: string;
   profile: IUserProfile;
   history: IProductHistoryItem[];
   favorites: IFavoriteItem[];
@@ -57,6 +62,15 @@ const UserSchema = new Schema<IUser>(
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'dietitian'],
+      default: 'user',
+    },
+    credentials: {
+      type: String,
       trim: true,
     },
     profile: {
@@ -128,6 +142,8 @@ interface InMemoryUser {
   email: string;
   password: string;
   name: string;
+  role: UserRole;
+  credentials?: string;
   profile: IUserProfile;
   history: IProductHistoryItem[];
   favorites: IFavoriteItem[];
@@ -147,6 +163,7 @@ async function seedDemoUser() {
       email: demoEmail,
       password: hashedPassword,
       name: 'Aarav Sharma',
+      role: 'user',
       profile: {
         allergies: ['peanuts', 'milk'],
         dietaryPreferences: ['vegetarian'],
@@ -180,30 +197,63 @@ async function seedDemoUser() {
     });
   }
 }
-seedDemoUser();
+
+// Seed a demo dietitian so the dietitian portal can be tried without registering
+async function seedDemoDietitian() {
+  const email = 'dietitian@labellens.dev';
+  if (!inMemoryUsers.has(email)) {
+    const hashedPassword = await bcrypt.hash('password123', 10);
+    inMemoryUsers.set(email, {
+      _id: 'user_demo_dietitian_201',
+      email,
+      password: hashedPassword,
+      name: 'Dr. Meera Iyer',
+      role: 'dietitian',
+      credentials: 'RD-IN-20417',
+      profile: {
+        allergies: [],
+        dietaryPreferences: [],
+        goals: [],
+        healthConditions: [],
+        region: 'IN',
+      },
+      history: [],
+      favorites: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+}
+
+const seedReady = Promise.all([seedDemoUser(), seedDemoDietitian()]);
 
 // Make the demo account available in MongoDB too, so the documented demo login works when deployed
 export async function ensureDemoUserInMongo() {
   if (mongoose.connection.readyState !== 1) return;
-  const demo = inMemoryUsers.get('student@labellens.dev');
-  if (!demo) return;
-  try {
-    const exists = await MongooseUserModel.exists({ email: demo.email });
-    if (exists) return;
-    // Password is already hashed; insert directly so the pre-save hook does not hash it again
-    await MongooseUserModel.collection.insertOne({
-      email: demo.email,
-      password: demo.password,
-      name: demo.name,
-      profile: demo.profile,
-      history: demo.history,
-      favorites: demo.favorites,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    console.log('[LabelLens DB] Seeded demo user in MongoDB');
-  } catch (err: any) {
-    console.warn('[LabelLens DB] Could not seed demo user:', err.message);
+  await seedReady;
+  for (const email of ['student@labellens.dev', 'dietitian@labellens.dev']) {
+    const demo = inMemoryUsers.get(email);
+    if (!demo) continue;
+    try {
+      const exists = await MongooseUserModel.exists({ email: demo.email });
+      if (exists) continue;
+      // Password is already hashed; insert directly so the pre-save hook does not hash it again
+      await MongooseUserModel.collection.insertOne({
+        email: demo.email,
+        password: demo.password,
+        name: demo.name,
+        role: demo.role,
+        ...(demo.credentials ? { credentials: demo.credentials } : {}),
+        profile: demo.profile,
+        history: demo.history,
+        favorites: demo.favorites,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      console.log(`[LabelLens DB] Seeded demo account ${email} in MongoDB`);
+    } catch (err: any) {
+      console.warn(`[LabelLens DB] Could not seed demo account ${email}:`, err.message);
+    }
   }
 }
 
@@ -246,6 +296,8 @@ export class UserRepository {
     email: string;
     password: string;
     name: string;
+    role?: UserRole;
+    credentials?: string;
     profile?: Partial<IUserProfile>;
   }) {
     const cleanEmail = userData.email.toLowerCase().trim();
@@ -275,6 +327,8 @@ export class UserRepository {
       email: cleanEmail,
       password: hashedPassword,
       name: userData.name.trim(),
+      role: userData.role || 'user',
+      credentials: userData.credentials,
       profile: {
         allergies: userData.profile?.allergies || [],
         dietaryPreferences: userData.profile?.dietaryPreferences || ['vegetarian'],

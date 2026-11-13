@@ -4,6 +4,7 @@ import {
   IFormattedProduct,
   IAlternativesResponse,
   IDietitianOpinion,
+  IDietitianReview,
 } from '../types';
 
 const TOKEN_KEY = 'labellens_auth_token';
@@ -74,7 +75,14 @@ export const api = {
   checkHealth: () => apiFetch<any>('/api/health'),
 
   // Auth
-  register: (payload: { email: string; password: string; name: string; profile?: Partial<IUserProfile> }) =>
+  register: (payload: {
+    email: string;
+    password: string;
+    name: string;
+    role?: 'user' | 'dietitian';
+    credentials?: string;
+    profile?: Partial<IUserProfile>;
+  }) =>
     apiFetch<{ message: string; token: string; user: IUser }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -135,6 +143,29 @@ export const api = {
     apiFetch<{ opinion: IDietitianOpinion; personalised: boolean }>('/api/ai/dietitian-opinion', {
       method: 'POST',
       body: JSON.stringify({ barcode, region }),
+    }),
+
+  // Dietitian reviews
+  getProductReviews: (barcode: string) =>
+    apiFetch<{ reviews: IDietitianReview[] }>(`/api/products/${encodeURIComponent(barcode)}/reviews`),
+
+  getMyReviews: () => apiFetch<{ reviews: IDietitianReview[] }>('/api/dietitian/reviews'),
+
+  saveReview: (payload: {
+    barcode: string;
+    verdict: IDietitianReview['verdict'];
+    rating: number;
+    comment: string;
+    suitableFor: string[];
+  }) =>
+    apiFetch<{ message: string; review: IDietitianReview }>('/api/dietitian/reviews', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteReview: (barcode: string) =>
+    apiFetch<{ message: string }>(`/api/dietitian/reviews/${encodeURIComponent(barcode)}`, {
+      method: 'DELETE',
     }),
 
   getAiInsights: (payload: {

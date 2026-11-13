@@ -10,6 +10,8 @@ export interface IUser {
   id: string;
   email: string;
   name: string;
+  role?: 'user' | 'dietitian';
+  credentials?: string;
   profile: IUserProfile;
   history?: IHistoryItem[];
   favorites?: IFavoriteItem[];
@@ -140,4 +142,21 @@ export interface IAlternativesResponse {
   categoryName: string;
   totalFound: number;
   explanation: string;
+}
+
+export interface IDietitianReview {
+  id: string;
+  barcode: string;
+  productName: string;
+  brand: string;
+  image?: string;
+  dietitianId: string;
+  dietitianName: string;
+  credentials?: string;
+  verdict: IDietitianOpinion['verdict'];
+  rating: number;
+  comment: string;
+  suitableFor: string[];
+  createdAt: string;
+  updatedAt: string;
 }

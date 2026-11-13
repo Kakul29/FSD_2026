@@ -12,6 +12,7 @@ import {
 import { GoogleGenAI } from '@google/genai';
 import { REGIONS } from '../../shared/regions';
 import { getDietitianOpinion } from '../services/dietitianOpinion';
+import { DietitianReviewRepository, REVIEW_VERDICTS } from '../models/DietitianReview';
 
 const router = Router();
 
@@ -78,9 +79,15 @@ router.get('/health', async (req: Request, res: Response) => {
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
     const { email, password, name, profile } = req.body;
+    const role = req.body.role === 'dietitian' ? 'dietitian' : 'user';
+    const credentials = typeof req.body.credentials === 'string' ? req.body.credentials.trim().slice(0, 60) : '';
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Email, password, and name are required' });
+    }
+
+    if (role === 'dietitian' && !credentials) {
+      return res.status(400).json({ error: 'Dietitians must provide a registration / licence number' });
     }
 
     if (password.length < 6) {
@@ -96,6 +103,8 @@ router.post('/auth/register', async (req: Request, res: Response) => {
       email,
       password,
       name,
+      role,
+      credentials: role === 'dietitian' ? credentials : undefined,
       profile,
     });
 
@@ -108,6 +117,8 @@ router.post('/auth/register', async (req: Request, res: Response) => {
         id: (newUser as any)._id || (newUser as any).id,
         email: newUser.email,
         name: newUser.name,
+        role: (newUser as any).role || 'user',
+        credentials: (newUser as any).credentials,
         profile: newUser.profile,
       },
     });
@@ -144,6 +155,8 @@ router.post('/auth/login', async (req: Request, res: Response) => {
         id: (user as any)._id || (user as any).id,
         email: user.email,
         name: user.name,
+        role: (user as any).role || 'user',
+        credentials: (user as any).credentials,
         profile: user.profile,
         history: user.history || [],
         favorites: user.favorites || [],
@@ -414,7 +427,114 @@ router.post('/ai/dietitian-opinion', optionalAuth, async (req: AuthRequest, res:
 });
 
 // ==========================================
-// 6. Deep AI Ingredient Insights (Gemini)
+// 6. Dietitian Reviews (human feedback from registered dietitians)
+// ==========================================
+
+// Loads the signed-in account and rejects anyone who is not a dietitian
+async function loadDietitian(req: AuthRequest, res: Response) {
+  const user: any = await UserRepository.findById(req.user!.id);
+  if (!user || user.role !== 'dietitian') {
+    res.status(403).json({ error: 'Only dietitian accounts can do this' });
+    return null;
+  }
+  return user;
+}
+
+// Public: all dietitian reviews for one product
+router.get('/products/:barcode/reviews', async (req: Request, res: Response) => {
+  try {
+    const reviews = await DietitianReviewRepository.listForProduct(req.params.barcode);
+    res.json({ reviews });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load reviews', message: err.message });
+  }
+});
+
+// Dietitian: reviews I have written
+router.get('/dietitian/reviews', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const dietitian = await loadDietitian(req, res);
+    if (!dietitian) return;
+    const reviews = await DietitianReviewRepository.listByDietitian(String(dietitian._id || dietitian.id));
+    res.json({ reviews });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load your reviews', message: err.message });
+  }
+});
+
+// Dietitian: create or update my review of a product
+router.post('/dietitian/reviews', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const dietitian = await loadDietitian(req, res);
+    if (!dietitian) return;
+
+    const { barcode, verdict, comment } = req.body;
+    const rating = Number(req.body.rating);
+    if (!barcode || typeof barcode !== 'string') {
+      return res.status(400).json({ error: 'Barcode is required' });
+    }
+    if (!REVIEW_VERDICTS.includes(verdict)) {
+      return res.status(400).json({ error: 'Verdict must be one of: ' + REVIEW_VERDICTS.join(', ') });
+    }
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be a whole number from 1 to 5' });
+    }
+    if (typeof comment !== 'string' || comment.trim().length < 10) {
+      return res.status(400).json({ error: 'Please write at least 10 characters of feedback' });
+    }
+
+    // Product details come from the catalog, not the client, so reviews always point at a real product
+    const product = await getProductByBarcode(barcode);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const suitableFor: string[] = Array.isArray(req.body.suitableFor)
+      ? Array.from(
+          new Set(
+            req.body.suitableFor
+              .filter((t: unknown) => typeof t === 'string')
+              .map((t: string) => t.trim().slice(0, 40))
+              .filter(Boolean)
+          )
+        ).slice(0, 10) as string[]
+      : [];
+
+    const review = await DietitianReviewRepository.upsert({
+      barcode: product.barcode,
+      productName: product.name,
+      brand: product.brand,
+      image: product.image,
+      dietitianId: String(dietitian._id || dietitian.id),
+      dietitianName: dietitian.name,
+      credentials: dietitian.credentials,
+      verdict,
+      rating,
+      comment: comment.trim().slice(0, 2000),
+      suitableFor,
+    });
+
+    res.json({ message: 'Feedback saved', review });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to save feedback', message: err.message });
+  }
+});
+
+// Dietitian: delete my review of a product
+router.delete('/dietitian/reviews/:barcode', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const dietitian = await loadDietitian(req, res);
+    if (!dietitian) return;
+    const removed = await DietitianReviewRepository.remove(req.params.barcode, String(dietitian._id || dietitian.id));
+    if (!removed) return res.status(404).json({ error: 'Review not found' });
+    res.json({ message: 'Feedback deleted' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete feedback', message: err.message });
+  }
+});
+
+// ==========================================
+// 7. Deep AI Ingredient Insights (Gemini)
 // ==========================================
 router.post('/ai/deep-insights', async (req: Request, res: Response) => {
   try {

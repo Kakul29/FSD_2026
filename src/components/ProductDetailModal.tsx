@@ -17,9 +17,10 @@ import {
   RefreshCw,
   Stethoscope,
 } from 'lucide-react';
-import { IFormattedProduct, IAlternativesResponse, IUser, IDietitianOpinion } from '../types';
+import { IFormattedProduct, IAlternativesResponse, IUser, IDietitianOpinion, IDietitianReview } from '../types';
 import { api } from '../services/api';
 import { HealthScoreModal } from './HealthScoreModal';
+import { Stars, verdictLabel, verdictStyle } from './DietitianPortal';
 
 interface ProductDetailModalProps {
   product: IFormattedProduct | null;
@@ -52,6 +53,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [dietitianOpinion, setDietitianOpinion] = useState<IDietitianOpinion | null>(null);
   const [loadingDietitian, setLoadingDietitian] = useState(false);
   const [dietitianError, setDietitianError] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<IDietitianReview[]>([]);
 
   useEffect(() => {
     if (!product || !isOpen) return;
@@ -86,6 +88,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
     loadAlternatives();
   }, [product, isOpen, currentUser]);
+
+  // Feedback written by registered dietitians on the dietitian portal
+  useEffect(() => {
+    if (!product || !isOpen) return;
+    let cancelled = false;
+    setReviews([]);
+    api
+      .getProductReviews(product.barcode)
+      .then((res) => !cancelled && setReviews(res.reviews))
+      .catch((err) => console.warn('Failed to load dietitian reviews:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [product, isOpen]);
 
   const handleToggleFavorite = async () => {
     if (!currentUser) {
@@ -608,6 +624,39 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* Reviews from registered dietitians */}
+          {reviews.length > 0 && (
+            <div className="p-4 rounded-2xl bg-white border border-emerald-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-stone-800">
+                  Reviewed by {reviews.length} dietitian{reviews.length > 1 ? 's' : ''}
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-stone-500">
+                  <Stars value={Math.round(reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length)} />
+                  <span>
+                    {(reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)} avg
+                  </span>
+                </span>
+              </div>
+              {reviews.map((r) => (
+                <div key={r.id} className="pt-3 border-t border-stone-100 first:border-t-0 first:pt-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-stone-900">{r.dietitianName}</span>
+                    {r.credentials && <span className="text-[10px] text-stone-400">Reg. {r.credentials}</span>}
+                    <span className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold ${verdictStyle(r.verdict)}`}>
+                      {verdictLabel(r.verdict)}
+                    </span>
+                    <Stars value={r.rating} size="w-3 h-3" />
+                  </div>
+                  <p className="text-xs text-stone-700 leading-relaxed whitespace-pre-line">{r.comment}</p>
+                  {r.suitableFor.length > 0 && (
+                    <p className="text-[11px] text-emerald-800">Suitable for: {r.suitableFor.join(', ')}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* REQUIREMENT 5: HEALTHIER ALTERNATIVES SECTION */}
           <div className="space-y-3 pt-2">
